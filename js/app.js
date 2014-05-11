@@ -1,5 +1,35 @@
 (function (window) {
+  ////////////////////////////////////////////////////////////
+  // Fall back of localStorage, compatible even with IE6
+  ////////////////////////////////////////////////////////////
+  if (!window.localStorage) {
+    window.localStorage = {
+      getItem: function (sKey) {
+      if (!sKey || !this.hasOwnProperty(sKey)) { return null; }
+        return unescape(document.cookie.replace(new RegExp("(?:^|.*;\\s*)" + escape(sKey).replace(/[\-\.\+\*]/g, "\\$&") + "\\s*\\=\\s*((?:[^;](?!;))*[^;]?).*"), "$1"));
+      },
+      key: function (nKeyId) {
+        return unescape(document.cookie.replace(/\s*\=(?:.(?!;))*$/, "").split(/\s*\=(?:[^;](?!;))*[^;]?;\s*/)[nKeyId]);
+      },
+      setItem: function (sKey, sValue) {
+        if(!sKey) { return; }
+        document.cookie = escape(sKey) + "=" + escape(sValue) + "; expires=Tue, 19 Jan 2038 03:14:07 GMT; path=/";
+        this.length = document.cookie.match(/\=/g).length;
+      },
+      length: 0,
+      removeItem: function (sKey) {
+        if (!sKey || !this.hasOwnProperty(sKey)) { return; }
+        document.cookie = escape(sKey) + "=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
+        this.length--;
+      },
+      hasOwnProperty: function (sKey) {
+        return (new RegExp("(?:^|;\\s*)" + escape(sKey).replace(/[\-\.\+\*]/g, "\\$&") + "\\s*\\=")).test(document.cookie);
+      }
+    };
+    window.localStorage.length = (document.cookie.match(/\=/g) || window.localStorage).length;
+  }
 
+  ////////////////////////////////////////////////////////////
   var Promise = Ember.RSVP.Promise;
 
   ////////////////////////////////////////////////////////////
@@ -33,10 +63,13 @@
         return user;
       });
     },
-    orderId: 'empty',
     getOrder: function() {
       var store = this.get('store');
-      var id = this.get('orderId');
+      //window.localStorage.removeItem('orderId');
+      var id = window.localStorage.getItem('orderId');
+      if(!id){
+        id = 0;
+      }
       var self = this;
       return this.get('store').find('order', id).then(function(order) {
         return order;
@@ -51,7 +84,7 @@
         });
         // Save the user
         order.save();
-        self.set('orderId', order.get('id'));
+        window.localStorage.setItem('orderId', order.get('id'));
         return order;
       });
     },
@@ -101,7 +134,8 @@
     createdAt: DS.attr('number'),
     createdDate: function() {
       return moment(this.get('createdAt')).format('MMMM Do, YYYY');
-    }.property('createdAt')
+    }.property('createdAt'),
+    items: DS.hasMany('item', { async: true })
   });
 
   App.Item = DS.Model.extend({
@@ -110,8 +144,7 @@
     createdDate: function() {
       return moment(this.get('createdAt')).format('MMMM Do, YYYY');
     }.property('createdAt'),
-    product: DS.belongsTo('product', { async: true }),
-    //order: DS.belongsTo('order', { async: true })
+    product: DS.belongsTo('product', { async: true })
   });
 
   App.Order = DS.Model.extend({
@@ -142,7 +175,7 @@
       var m = moment(this.get('published'));
       return '%@ at %@'.fmt(m.format('MMMM Do, YYYY'), m.format('h:mm:ss a'));
     }.property('published'),
-    user: DS.belongsTo('user', { async: true })
+    user: DS.belongsTo('user', {async: true})
   });
 
   App.User = DS.Model.extend({
@@ -278,7 +311,7 @@
           var item = this.store.createRecord('item', {
             quantity: this.get('quantity'),
             created: new Date().getTime(),
-            product: this.get('content') 
+            product: this.get('content')
           });
 
           //item.save();
@@ -370,7 +403,17 @@
 
     App.PostRoute = Ember.Route.extend({
       model: function(params) {
-        return this.store.find('post', params.post_id);
+        return this.store.find('post', params.post_id).then(function(post){
+          //return post;
+
+          return Promise.cast(post.get('comments')).then(function(items) {
+            items.forEach(function(i){
+              //print undefined when async: true, print actual value without async: true
+              console.log(i.get('user').get('id'));
+            });
+            return post;
+          });
+        });
       }
     });
 
